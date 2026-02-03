@@ -63,7 +63,7 @@ wss.on('connection', async (twilioWs) => {
     }
   );
 
-  // Initialize session when OpenAI connects
+  // Initialize session when OpenAI connects (matching Twilio official example)
   const initializeSession = () => {
     const sessionUpdate = {
       type: 'session.update',
@@ -73,36 +73,27 @@ wss.on('connection', async (twilioWs) => {
         output_audio_format: 'g711_ulaw',
         voice: VOICE,
         instructions: SYSTEM_MESSAGE,
-        modalities: ['audio'],  // MUST be just 'audio' for voice output!
+        modalities: ['text', 'audio'],  // Need both for the model to work
         temperature: 0.8
       }
     };
-    console.log('Sending session update');
+    console.log('Sending session update:', JSON.stringify(sessionUpdate));
     openaiWs.send(JSON.stringify(sessionUpdate));
     
-    // Make AI greet the user first
-    sendInitialGreeting();
+    // Wait a bit then make AI greet the user
+    setTimeout(() => sendInitialGreeting(), 250);
   };
   
-  // Send initial greeting
+  // Send initial greeting - force audio modality
   const sendInitialGreeting = () => {
-    const initialItem = {
-      type: 'conversation.item.create',
-      item: {
-        type: 'message',
-        role: 'user',
-        content: [
-          {
-            type: 'input_text',
-            text: 'Greet the user warmly. Say something like "Hey there! I\'m Genie. What can I help you with today?"'
-          }
-        ]
+    console.log('Sending initial greeting with audio modality');
+    openaiWs.send(JSON.stringify({
+      type: 'response.create',
+      response: {
+        modalities: ['audio'],
+        instructions: 'Greet the user warmly. Say something like "Hey there! I\'m Genie. What can I help you with today?"'
       }
-    };
-    
-    console.log('Sending initial greeting prompt');
-    openaiWs.send(JSON.stringify(initialItem));
-    openaiWs.send(JSON.stringify({ type: 'response.create' }));
+    }));
   };
 
   openaiWs.on('open', () => {
