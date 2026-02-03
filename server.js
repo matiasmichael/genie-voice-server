@@ -60,6 +60,17 @@ wss.on('connection', async (twilioWs) => {
         temperature: 0.8
       }
     }));
+    
+    // Prompt the AI to greet the user immediately
+    setTimeout(() => {
+      openaiWs.send(JSON.stringify({
+        type: 'response.create',
+        response: {
+          modalities: ['text', 'audio'],
+          instructions: 'Greet Michael warmly! This is your first voice call with him. Be excited but natural.'
+        }
+      }));
+    }, 500);
   });
 
   openaiWs.on('error', (err) => console.error('OpenAI error:', err));
