@@ -9,6 +9,24 @@ const wss = new WebSocketServer({ server, path: '/media-stream' });
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const PORT = process.env.PORT || 3000;
 
+const SYSTEM_MESSAGE = `You are Genie, Michael's helpful AI assistant. You have a warm, friendly personality. 
+This is your first real voice conversation! Keep responses concise and conversational - this is a phone call, not a text chat.
+Be natural and personable.`;
+
+const VOICE = 'shimmer';
+
+// Event types to log
+const LOG_EVENT_TYPES = [
+  'error',
+  'response.content.done',
+  'response.done',
+  'input_audio_buffer.committed',
+  'input_audio_buffer.speech_stopped',
+  'input_audio_buffer.speech_started',
+  'session.created',
+  'session.updated'
+];
+
 app.use(express.urlencoded({ extended: true }));
 
 // TwiML for calls - connects to our WebSocket
@@ -16,7 +34,9 @@ app.all('/voice', (req, res) => {
   const host = req.headers.host;
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
     <Response>
-      <Say>Connecting you to Genie. Please wait.</Say>
+      <Say>Please wait while we connect you to Genie.</Say>
+      <Pause length="1"/>
+      <Say>OK, you can start talking!</Say>
       <Connect>
         <Stream url="wss://${host}/media-stream" />
       </Connect>
@@ -30,6 +50,7 @@ app.get('/health', (req, res) => res.send('OK'));
 wss.on('connection', async (twilioWs) => {
   console.log('Twilio Media Stream connected');
   let streamSid = null;
+  let latestMediaTimestamp = 0;
   
   // Connect to OpenAI Realtime API
   const openaiWs = new WebSocket(
@@ -42,35 +63,51 @@ wss.on('connection', async (twilioWs) => {
     }
   );
 
-  openaiWs.on('open', () => {
-    console.log('OpenAI Realtime connected');
-    // Configure the session for phone audio
-    openaiWs.send(JSON.stringify({
+  // Initialize session when OpenAI connects
+  const initializeSession = () => {
+    const sessionUpdate = {
       type: 'session.update',
       session: {
         turn_detection: { type: 'server_vad' },
         input_audio_format: 'g711_ulaw',
         output_audio_format: 'g711_ulaw',
-        voice: 'shimmer',
-        instructions: `You are Genie, Michael's helpful AI assistant. You have a warm, friendly personality. 
-          You're excited because this is your first real voice conversation!
-          Keep responses concise and conversational - this is a phone call, not a text chat.
-          Be natural and personable.`,
+        voice: VOICE,
+        instructions: SYSTEM_MESSAGE,
         modalities: ['text', 'audio'],
         temperature: 0.8
       }
-    }));
+    };
+    console.log('Sending session update');
+    openaiWs.send(JSON.stringify(sessionUpdate));
     
-    // Prompt the AI to greet the user immediately
-    setTimeout(() => {
-      openaiWs.send(JSON.stringify({
-        type: 'response.create',
-        response: {
-          modalities: ['text', 'audio'],
-          instructions: 'Greet Michael warmly! This is your first voice call with him. Be excited but natural.'
-        }
-      }));
-    }, 500);
+    // Make AI greet the user first
+    sendInitialGreeting();
+  };
+  
+  // Send initial greeting
+  const sendInitialGreeting = () => {
+    const initialItem = {
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'user',
+        content: [
+          {
+            type: 'input_text',
+            text: 'Greet the user warmly. Say something like "Hey there! I\'m Genie. What can I help you with today?"'
+          }
+        ]
+      }
+    };
+    
+    console.log('Sending initial greeting prompt');
+    openaiWs.send(JSON.stringify(initialItem));
+    openaiWs.send(JSON.stringify({ type: 'response.create' }));
+  };
+
+  openaiWs.on('open', () => {
+    console.log('OpenAI Realtime connected');
+    setTimeout(initializeSession, 100);
   });
 
   openaiWs.on('error', (err) => console.error('OpenAI error:', err));
@@ -80,17 +117,29 @@ wss.on('connection', async (twilioWs) => {
     try {
       const msg = JSON.parse(data);
       
-      if (msg.event === 'start') {
-        streamSid = msg.start.streamSid;
-        console.log('Stream started:', streamSid);
-      }
-      
-      if (msg.event === 'media' && openaiWs.readyState === WebSocket.OPEN) {
-        // Send audio to OpenAI
-        openaiWs.send(JSON.stringify({
-          type: 'input_audio_buffer.append',
-          audio: msg.media.payload
-        }));
+      switch (msg.event) {
+        case 'start':
+          streamSid = msg.start.streamSid;
+          console.log('Stream started:', streamSid);
+          latestMediaTimestamp = 0;
+          break;
+          
+        case 'media':
+          latestMediaTimestamp = msg.media.timestamp;
+          if (openaiWs.readyState === WebSocket.OPEN) {
+            openaiWs.send(JSON.stringify({
+              type: 'input_audio_buffer.append',
+              audio: msg.media.payload
+            }));
+          }
+          break;
+          
+        case 'mark':
+          // Handle mark events for audio sync
+          break;
+          
+        default:
+          console.log('Twilio event:', msg.event);
       }
     } catch (e) {
       console.error('Twilio message error:', e);
@@ -102,25 +151,13 @@ wss.on('connection', async (twilioWs) => {
     try {
       const response = JSON.parse(data.toString());
       
-      // Log all message types for debugging
-      console.log('OpenAI event:', response.type);
-      
-      // Log errors
-      if (response.type === 'error') {
-        console.error('OpenAI error:', JSON.stringify(response.error));
+      // Log important events
+      if (LOG_EVENT_TYPES.includes(response.type)) {
+        console.log('OpenAI event:', response.type, response.type === 'error' ? response.error : '');
       }
       
-      // Log session updates
-      if (response.type === 'session.created' || response.type === 'session.updated') {
-        console.log('Session configured:', response.type);
-      }
-      
-      // Log response creation
-      if (response.type === 'response.created') {
-        console.log('Response started');
-      }
-      
-      if (response.type === 'response.audio.delta' && response.delta) {
+      // Handle audio output - try both possible event names
+      if ((response.type === 'response.audio.delta' || response.type === 'response.output_audio.delta') && response.delta) {
         // Send audio back to Twilio
         if (twilioWs.readyState === WebSocket.OPEN && streamSid) {
           twilioWs.send(JSON.stringify({
@@ -131,12 +168,11 @@ wss.on('connection', async (twilioWs) => {
         }
       }
       
-      if (response.type === 'response.audio_transcript.done') {
-        console.log('Genie said:', response.transcript);
-      }
-      
-      if (response.type === 'response.done') {
-        console.log('Response complete');
+      // Log transcripts
+      if (response.type === 'response.audio_transcript.done' || response.type === 'response.content.done') {
+        if (response.transcript) {
+          console.log('Genie said:', response.transcript);
+        }
       }
     } catch (e) {
       console.error('OpenAI message error:', e);
