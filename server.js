@@ -73,7 +73,7 @@ wss.on('connection', async (twilioWs) => {
         output_audio_format: 'g711_ulaw',
         voice: VOICE,
         instructions: SYSTEM_MESSAGE,
-        modalities: ['text', 'audio'],
+        modalities: ['audio'],  // MUST be just 'audio' for voice output!
         temperature: 0.8
       }
     };
