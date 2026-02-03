@@ -247,22 +247,37 @@ wss.on('connection', async (twilioWs) => {
     try {
       const response = JSON.parse(data.toString());
       
+      // Debug: log ALL event types we receive
+      if (!['response.audio.delta', 'input_audio_buffer.append'].includes(response.type)) {
+        console.log(`[DEBUG] OpenAI event: ${response.type}`);
+      }
+      
       // Log important events
       if (response.type === 'error') {
         addLog('error', 'OpenAI error', JSON.stringify(response.error));
       } else if (response.type === 'session.created') {
-        addLog('openai', 'Session created');
+        addLog('openai', `Session created - modalities: ${JSON.stringify(response.session?.modalities)}`);
       } else if (response.type === 'session.updated') {
-        addLog('openai', 'Session updated');
+        addLog('openai', `Session updated - modalities: ${JSON.stringify(response.session?.modalities)}, voice: ${response.session?.voice}`);
       } else if (response.type === 'response.created') {
-        addLog('openai', 'Response started');
+        addLog('openai', `Response started - modalities: ${JSON.stringify(response.response?.modalities)}`);
       } else if (response.type === 'response.done') {
         addLog('openai', `Response complete (${audioChunkCount} audio chunks sent)`);
+        // Log the full response output types for debugging
+        if (response.response?.output) {
+          const outputTypes = response.response.output.map(o => o.type);
+          addLog('openai', `Output types: ${JSON.stringify(outputTypes)}`);
+        }
         audioChunkCount = 0;
       } else if (response.type === 'input_audio_buffer.speech_started') {
         addLog('openai', 'User speaking...');
       } else if (response.type === 'input_audio_buffer.speech_stopped') {
         addLog('openai', 'User stopped speaking');
+      } else if (response.type === 'response.text.delta') {
+        // We're getting text but not audio - this helps debug
+        addLog('openai', `Text delta received (audio missing?)`);
+      } else if (response.type === 'response.content_part.added') {
+        addLog('openai', `Content part added: ${response.part?.type}`);
       }
       
       // Handle audio output
@@ -284,6 +299,9 @@ wss.on('connection', async (twilioWs) => {
       // Log transcripts
       if (response.type === 'response.audio_transcript.done' && response.transcript) {
         addLog('openai', `Genie said: "${response.transcript}"`);
+      }
+      if (response.type === 'response.text.done' && response.text) {
+        addLog('openai', `Text response: "${response.text}"`);
       }
     } catch (e) {
       addLog('error', 'OpenAI message error', e.message);
