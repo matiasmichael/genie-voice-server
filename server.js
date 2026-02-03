@@ -102,6 +102,24 @@ wss.on('connection', async (twilioWs) => {
     try {
       const response = JSON.parse(data.toString());
       
+      // Log all message types for debugging
+      console.log('OpenAI event:', response.type);
+      
+      // Log errors
+      if (response.type === 'error') {
+        console.error('OpenAI error:', JSON.stringify(response.error));
+      }
+      
+      // Log session updates
+      if (response.type === 'session.created' || response.type === 'session.updated') {
+        console.log('Session configured:', response.type);
+      }
+      
+      // Log response creation
+      if (response.type === 'response.created') {
+        console.log('Response started');
+      }
+      
       if (response.type === 'response.audio.delta' && response.delta) {
         // Send audio back to Twilio
         if (twilioWs.readyState === WebSocket.OPEN && streamSid) {
@@ -115,6 +133,10 @@ wss.on('connection', async (twilioWs) => {
       
       if (response.type === 'response.audio_transcript.done') {
         console.log('Genie said:', response.transcript);
+      }
+      
+      if (response.type === 'response.done') {
+        console.log('Response complete');
       }
     } catch (e) {
       console.error('OpenAI message error:', e);
