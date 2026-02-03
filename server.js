@@ -247,9 +247,9 @@ wss.on('connection', async (twilioWs) => {
     try {
       const response = JSON.parse(data.toString());
       
-      // Debug: log ALL event types we receive
-      if (!['response.audio.delta', 'input_audio_buffer.append'].includes(response.type)) {
-        console.log(`[DEBUG] OpenAI event: ${response.type}`);
+      // Debug: log ALL event types we receive (except frequent ones)
+      if (!['response.audio.delta', 'input_audio_buffer.committed', 'response.audio_transcript.delta'].includes(response.type)) {
+        addLog('debug', `Event: ${response.type}`, response.type.includes('error') ? JSON.stringify(response) : null);
       }
       
       // Log important events
