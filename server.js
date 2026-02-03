@@ -281,18 +281,20 @@ wss.on('connection', async (twilioWs) => {
       }
       
       // Handle audio output
-      if (response.type === 'response.audio.delta' && response.delta) {
+      if (response.type === 'response.audio.delta') {
         audioChunkCount++;
+        if (audioChunkCount === 1) {
+          addLog('audio', `First audio delta received! Has delta: ${!!response.delta}, length: ${response.delta?.length || 0}`);
+        }
         // Send audio back to Twilio
-        if (twilioWs.readyState === WebSocket.OPEN && streamSid) {
+        if (response.delta && twilioWs.readyState === WebSocket.OPEN && streamSid) {
           twilioWs.send(JSON.stringify({
             event: 'media',
             streamSid: streamSid,
             media: { payload: response.delta }
           }));
-          if (audioChunkCount === 1) {
-            addLog('audio', 'Sending audio to Twilio...');
-          }
+        } else if (!response.delta) {
+          addLog('error', 'Audio delta event but no delta data!');
         }
       }
       
